@@ -281,8 +281,13 @@ public static class PhotoProcessor
         while (pos + 4 <= jpeg.Length && jpeg[pos] == 0xFF)
         {
             int marker = jpeg[pos + 1];
-            if (marker is 0x00 or 0xFF or 0xD9)
-                break; // 填充字节/连续 FF/文件结束，无长度字段
+            if (marker == 0xFF)
+            {
+                pos += 1; // 连续 FF 填充字节，跳过单个继续找真正的 marker
+                continue;
+            }
+            if (marker is 0x00 or 0xD9)
+                break; // 文件结束，无长度字段
             if (marker is >= 0xD0 and <= 0xD7 or 0x01)
             {
                 pos += 2; // RST/TEM 独立 marker，无长度字段

@@ -38,6 +38,20 @@ static class Diag
         Console.WriteLine($"      ({os.Length}B)");
     }
 
+    /// <summary>从程序所在目录逐级向上定位 tests\sample.jpg，不依赖绝对路径。</summary>
+    static string FindSample()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            string candidate = Path.Combine(dir.FullName, "tests", "sample.jpg");
+            if (File.Exists(candidate))
+                return candidate;
+            dir = dir.Parent!;
+        }
+        throw new FileNotFoundException("未找到 tests\\sample.jpg");
+    }
+
     static void Main()
     {
         T("T8 LockBits 32bpp + Save(stream)", () => { var b = Fill32(480, 640); SaveStream(b); b.Dispose(); });
@@ -53,7 +67,7 @@ static class Diag
         });
         T("T11 文件解码 24bpp + Save(stream)", () =>
         {
-            using var f = new Bitmap(@"D:\Projects\PhotoAdjust\tests\sample.jpg");
+            using var f = new Bitmap(FindSample());
             SaveStream(f);
         });
         T("T12 LockBits 24bpp + Save", () =>

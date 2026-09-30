@@ -25,7 +25,7 @@ public class MainForm : Form
                         : FileState.Pending;
     }
 
-    private const string DefaultSummary = "目标要求: 480×640 像素 │ 20~40 KB │ 300 DPI\n支持将照片或文件夹拖拽到窗口任意位置";
+    private const string DefaultSummary = "目标要求: 480×640 像素 │ 20~40 KB │ 300 DPI";
 
     private readonly List<FileItem> items = new();
     // O(1) 去重索引，与 items 同步维护（扫描在后台线程构建批次，仅回 UI 线程后合并）
@@ -61,9 +61,6 @@ public class MainForm : Form
         MinimumSize = new Size(1000, 640);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Microsoft YaHei UI", 9F);
-        AllowDrop = true;
-        DragEnter += OnDragEnter;
-        DragDrop += OnDragDrop;
 
         // ── 左侧：队列操作 ──
         btnPick = new Button
@@ -229,7 +226,14 @@ public class MainForm : Form
                 processCts?.Cancel();
                 return;
             }
-            await ProcessAllAsync();
+            try
+            {
+                await ProcessAllAsync();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"处理时发生意外错误：{ex.Message}", "错误");
+            }
         };
         Controls.Add(btnProcess);
 
@@ -270,23 +274,6 @@ public class MainForm : Form
         };
         if (dialog.ShowDialog(this) == DialogResult.OK)
             await AddPathsAsync([dialog.SelectedPath]);
-    }
-
-    private void OnDragEnter(object? sender, DragEventArgs e)
-    {
-        if (scanning)
-        {
-            e.Effect = DragDropEffects.None;
-            return;
-        }
-        if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
-            e.Effect = DragDropEffects.Copy;
-    }
-
-    private void OnDragDrop(object? sender, DragEventArgs e)
-    {
-        if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths)
-            _ = AddPathsAsync(paths);
     }
 
     /// <summary>加入文件或文件夹（文件夹含子文件夹）。目录枚举与去重在后台线程完成，
@@ -513,6 +500,24 @@ public class MainForm : Form
             return;
         }
 
+        // 输出目录中包含本轮待处理的源文件时，输出会覆盖这些原件（如 photo.jpg 处理后写回原位置），需用户确认
+        string fullOutput = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(outputDir));
+        var overlapped = pending
+            .Where(i => string.Equals(
+                System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetDirectoryName(i.Path) ?? ""),
+                fullOutput,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (overlapped.Count > 0)
+        {
+            string example = $"{overlapped[0].Name} → {overlapped[0].OutputName}（原文件被覆盖）";
+            var choice = MessageBox.Show(this,
+                $"输出文件夹中包含 {overlapped.Count} 个待处理的源文件，处理后这些原件将被覆盖且无法恢复。\n\n例如：{example}\n\n是否继续？",
+                "覆盖确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (choice != DialogResult.Yes)
+                return;
+        }
+
         isProcessing = true;
         processCts = new CancellationTokenSource();
         int total = pending.Count;
@@ -712,6 +717,8 @@ public class MainForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        // 立即取消后台处理，避免进程退出时正在写入的输出文件被截断
+        processCts?.Cancel();
         picOriginal.Image?.Dispose();
         picResult.Image?.Dispose();
         base.OnFormClosed(e);

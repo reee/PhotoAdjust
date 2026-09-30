@@ -40,6 +40,11 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
+# 图片不入库：根目录样张可能含敏感信息命名的文件；outfix/outfolder 为生成产物
+/*.jpg
+/tests/outfix/
+/tests/outfolder/
+
 # 其他
 *.log
 *.tmp
