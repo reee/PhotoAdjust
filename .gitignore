@@ -1,0 +1,46 @@
+# 构建产物
+bin/
+obj/
+dist/
+artifacts/
+
+# Visual Studio / Rider 用户目录
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# 发布 / 单文件打包临时文件
+*.pubxml.user
+publish/
+[Bb]uild[Ll]og.*
+
+# 测试结果
+TestResults/
+[Ll]ogs/
+
+# NuGet
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+
+# .NET 本地工具与全局缓存
+.dotnet/
+project.lock.json
+project.fragment.lock.json
+
+# Windows 系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# 其他
+*.log
+*.tmp
+~$*
