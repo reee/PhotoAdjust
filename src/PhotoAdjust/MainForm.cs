@@ -116,7 +116,7 @@ public class MainForm : Form
             ShowItemToolTips = true,
             VirtualMode = true,
         };
-        lvFiles.Columns.Add("#", 48);      // 序号：预留 5 位数（99999）宽度
+        lvFiles.Columns.Add("#", 64);      // 序号：实测 9pt 下 5 位数文本宽 54px，64 才能放下内边距
         lvFiles.Columns.Add("文件", 292);
         lvFiles.Columns.Add("状态", 58);
         lvFiles.RetrieveVirtualItem += OnRetrieveVirtualItem;
