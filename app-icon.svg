@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- App 背景渐变：现代科技感靛蓝与浅紫 -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3730A3" />
+      <stop offset="50%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+
+    <!-- 卡片大投影 -->
+    <filter id="cardShadow" x="-20%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#0F172A" flood-opacity="0.32" />
+    </filter>
+
+    <!-- 操作角标投影 -->
+    <filter id="badgeShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#E11D48" flood-opacity="0.4" />
+    </filter>
+
+    <!-- 图片晨曦天空渐变 -->
+    <linearGradient id="skyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE68A" />
+      <stop offset="45%" stop-color="#F472B6" />
+      <stop offset="100%" stop-color="#818CF8" />
+    </linearGradient>
+
+    <!-- 操作角标渐变：活力珊瑚粉红 -->
+    <linearGradient id="badgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FB7185" />
+      <stop offset="100%" stop-color="#E11D48" />
+    </linearGradient>
+
+    <!-- 主照片圆角裁切 -->
+    <clipPath id="photoClip">
+      <rect x="138" y="123" width="236" height="148" rx="18" />
+    </clipPath>
+  </defs>
+
+  <!-- 1. App 图标底座 (iOS/macOS 标准平滑圆角) -->
+  <rect width="512" height="512" rx="116" fill="url(#bgGrad)" />
+
+  <!-- 内部环境光点缀 -->
+  <circle cx="120" cy="100" r="160" fill="#FFFFFF" opacity="0.08" />
+
+  <!-- 2. 「批量」层叠卡片效果 (Back Cards) -->
+  <!-- 第 1 张底层卡片 (微斜 -12°) -->
+  <g transform="rotate(-12 256 256) translate(-14, -14)">
+    <rect x="120" y="105" width="272" height="302" rx="30" fill="#FFFFFF" opacity="0.16" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="1.5" />
+  </g>
+
+  <!-- 第 2 张中层卡片 (微斜 -6°) -->
+  <g transform="rotate(-6 256 256) translate(-7, -7)">
+    <rect x="120" y="105" width="272" height="302" rx="30" fill="#FFFFFF" opacity="0.28" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="1.5" />
+  </g>
+
+  <!-- 3. 「主相片卡片」正面 (Front Card) -->
+  <g filter="url(#cardShadow)">
+    <rect x="120" y="105" width="272" height="302" rx="30" fill="#FFFFFF" />
+
+    <!-- 3.1 「图片」展示区 (Image Thumbnail) -->
+    <g clip-path="url(#photoClip)">
+      <rect x="138" y="123" width="236" height="148" fill="url(#skyGrad)" />
+      
+      <!-- 太阳 -->
+      <circle cx="178" cy="158" r="14" fill="#FFFFFF" opacity="0.95" />
+
+      <!-- 远山轮廓 -->
+      <path d="M 125 275 L 188 206 C 196 197 210 197 218 206 L 295 275 Z" fill="#6366F1" opacity="0.75" />
+
+      <!-- 近山轮廓 -->
+      <path d="M 180 275 L 258 178 C 267 167 283 167 292 178 L 385 275 Z" fill="#4338CA" />
+    </g>
+
+    <!-- 3.2 「信息 / 元数据」面板 (Metadata Section) -->
+    <!-- 第一行：INFO 标签徽章 + 属性进度条 -->
+    <rect x="138" y="288" width="54" height="18" rx="9" fill="#EEF2FF" />
+    <text x="165" y="301" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif" font-size="9" font-weight="800" fill="#4F46E5" text-anchor="middle" letter-spacing="0.5">INFO</text>
+    
+    <rect x="200" y="293" width="60" height="8" rx="4" fill="#94A3B8" />
+
+    <!-- 第二行：主数据字段条 (如拍摄日期/型号) -->
+    <rect x="138" y="318" width="116" height="8" rx="4" fill="#CBD5E1" />
+
+    <!-- 第三行：次级数据字段条 (如分辨率/位置) -->
+    <rect x="138" y="336" width="84" height="8" rx="4" fill="#E2E8F0" />
+    
+    <!-- 第四行：微型标签字段 -->
+    <rect x="138" y="354" width="52" height="7" rx="3.5" fill="#F1F5F9" />
+  </g>
+
+  <!-- 4. 「修改」操作悬浮角标 (Edit Action Badge) -->
+  <g filter="url(#badgeShadow)">
+    <circle cx="360" cy="370" r="44" fill="url(#badgeGrad)" />
+    
+    <!-- 极简倾斜铅笔 (指向左下方信息区) -->
+    <g transform="rotate(45 360 370)">
+      <!-- 笔顶橡皮/端头 -->
+      <rect x="353" y="347" width="14" height="6" rx="2" fill="#FFFFFF" opacity="0.6" />
+      <!-- 笔身 -->
+      <rect x="353" y="356" width="14" height="24" rx="1.5" fill="#FFFFFF" />
+      <!-- 笔尖锥形 -->
+      <path d="M 353 382 L 360 395 L 367 382 Z" fill="#FFFFFF" />
+      <!-- 笔尖石墨芯 -->
+      <path d="M 357.5 390 L 360 395 L 362.5 390 Z" fill="#BE123C" />
+    </g>
+  </g>
+</svg>

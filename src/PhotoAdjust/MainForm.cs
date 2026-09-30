@@ -35,6 +35,8 @@ public class MainForm : Form
     private readonly PictureBox picOriginal;
     private readonly PictureBox picResult;
     private readonly Label lblResultCaption;
+    private readonly Label lblOriginalCaption;
+    private readonly Label lblArrow;
     private readonly Label lblInfo;
     private readonly Label lblSummary;
     private readonly TextBox txtDir;
@@ -44,21 +46,33 @@ public class MainForm : Form
     private readonly Button btnClearQueue;
     private readonly Button btnProcess;
     private readonly Button btnOpenFolder;
+    private readonly Button btnTogglePreview;
     private readonly ToolTip fileTooltip = new();
     private readonly Stopwatch processStopwatch = new();
     private bool isProcessing;
     private bool scanning;
     private CancellationTokenSource? processCts;
     private System.Windows.Forms.Timer? progressTimer;
+    private readonly Panel separator;
+    // 前后对比预览区默认收起，仅保留列表与文件信息
+    private bool previewExpanded;
+
+    // 两种预览布局的窗口客户区尺寸（ApplyPreviewLayout 与控件定位共用，避免两处失步）
+    private const int ExpandedClientWidth = 990;
+    private const int ExpandedClientHeight = 610;
+    private const int CollapsedClientWidth = 470;
+    private const int CollapsedClientHeight = 610;
 
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".jpg", ".jpeg", ".png", ".bmp" };
 
     public MainForm(string[]? initialFiles = null)
     {
-        Text = "照片合规调整工具";
-        ClientSize = new Size(990, 610);
-        MinimumSize = new Size(1000, 640);
+        // 版本号 = exe 的编译日期（每次 dotnet build/publish 都会更新 exe 时间戳）
+        Text = $"高考图片合规调整工具 v{File.GetLastWriteTime(Application.ExecutablePath):yyyy.M.d}";
+        // 窗体标题栏/任务栏图标取自 exe 内嵌图标（由 csproj 的 ApplicationIcon 提供）
+        Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        // ClientSize / MinimumSize 由 ApplyPreviewLayout 按展开状态设置（默认收起）
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Microsoft YaHei UI", 9F);
 
@@ -102,8 +116,8 @@ public class MainForm : Form
             ShowItemToolTips = true,
             VirtualMode = true,
         };
-        lvFiles.Columns.Add("文件", 170);
-        lvFiles.Columns.Add("结果", 200);
+        lvFiles.Columns.Add("#", 48);      // 序号：预留 5 位数（99999）宽度
+        lvFiles.Columns.Add("文件", 292);
         lvFiles.Columns.Add("状态", 58);
         lvFiles.RetrieveVirtualItem += OnRetrieveVirtualItem;
         lvFiles.SelectedIndexChanged += (_, _) => ShowSelectedItem();
@@ -115,7 +129,7 @@ public class MainForm : Form
         {
             Location = new Point(12, 428),
             Size = new Size(440, 18),
-            Text = "输出到指定文件夹（文件名与源文件相同，同名原件会被覆盖）:",
+            Text = "输出文件夹:",
         };
         Controls.Add(lblOutput);
 
@@ -144,8 +158,8 @@ public class MainForm : Form
         };
         Controls.Add(lblSummary);
 
-        // ── 右侧：前后预览 ──
-        var lblOriginalCaption = new Label
+        // ── 右侧：前后预览（默认收起，经 ApplyPreviewLayout 控制显隐）──
+        lblOriginalCaption = new Label
         {
             Location = new Point(470, 12),
             Size = new Size(240, 20),
@@ -164,7 +178,7 @@ public class MainForm : Form
         };
         Controls.Add(picOriginal);
 
-        var lblArrow = new Label
+        lblArrow = new Label
         {
             Location = new Point(710, 182),
             Size = new Size(32, 28),
@@ -204,10 +218,11 @@ public class MainForm : Form
         Controls.Add(lblInfo);
 
         // ── 底部操作区 ──
-        var separator = new Panel
+        separator = new Panel
         {
             Location = new Point(0, 534),
-            Size = new Size(ClientSize.Width, 1),
+            // 初始为收起态宽度，切换布局时由 ApplyPreviewLayout 同步
+            Size = new Size(CollapsedClientWidth, 1),
             BackColor = Color.FromArgb(216, 216, 216),
         };
         Controls.Add(separator);
@@ -247,10 +262,60 @@ public class MainForm : Form
         btnOpenFolder.Click += (_, _) => OpenOutputFolder();
         Controls.Add(btnOpenFolder);
 
+        btnTogglePreview = new Button
+        {
+            Location = new Point(372, 548),
+            Size = new Size(94, 40),
+            Text = "对比预览 ▸",
+        };
+        btnTogglePreview.Click += (_, _) =>
+        {
+            previewExpanded = !previewExpanded;
+            ApplyPreviewLayout();
+        };
+        Controls.Add(btnTogglePreview);
+
         AcceptButton = btnProcess;
+
+        ApplyPreviewLayout();
 
         if (initialFiles is { Length: > 0 })
             _ = AddPathsAsync(initialFiles);
+    }
+
+    /// <summary>在「仅列表」与「列表 + 前后对比预览」两种布局间切换。</summary>
+    private void ApplyPreviewLayout()
+    {
+        lblOriginalCaption.Visible = previewExpanded;
+        picOriginal.Visible = previewExpanded;
+        lblArrow.Visible = previewExpanded;
+        lblResultCaption.Visible = previewExpanded;
+        picResult.Visible = previewExpanded;
+        // 路径与处理详情只在对比预览界面展示，收起时由列表的「状态」列承担反馈
+        lblInfo.Visible = previewExpanded;
+
+        // 先调 MinimumSize 再调 ClientSize，两个方向都不会被最小尺寸卡住
+        if (previewExpanded)
+        {
+            separator.Width = ExpandedClientWidth;
+            btnTogglePreview.Text = "◂ 收起对比";
+            // 收起期间跳过了图片加载，展开时按当前选中项补一次
+            ShowSelectedItem();
+            SetWindowSize(ExpandedClientWidth, ExpandedClientHeight);
+        }
+        else
+        {
+            separator.Width = CollapsedClientWidth;
+            btnTogglePreview.Text = "对比预览 ▸";
+            SetWindowSize(CollapsedClientWidth, CollapsedClientHeight);
+        }
+    }
+
+    /// <summary>按客户区尺寸设置窗口大小（MinimumSize 为窗口外尺寸，与客户区差一个边框：宽 +10、高 +30）。</summary>
+    private void SetWindowSize(int clientWidth, int clientHeight)
+    {
+        MinimumSize = new Size(clientWidth + 10, clientHeight + 30);
+        ClientSize = new Size(clientWidth, clientHeight);
     }
 
     private async Task PickFiles()
@@ -282,7 +347,6 @@ public class MainForm : Form
     {
         if (scanning) return;
         SetScanning(true);
-        string summaryBefore = lblSummary.Text;
         lblSummary.Text = "正在扫描…";
         try
         {
@@ -321,7 +385,8 @@ public class MainForm : Form
         finally
         {
             SetScanning(false);
-            lblSummary.Text = summaryBefore;
+            // 加载完成后以文件总数取代默认的目标要求说明
+            lblSummary.Text = $"共 {items.Count} 个文件";
         }
     }
 
@@ -432,22 +497,20 @@ public class MainForm : Form
         // 必须始终为 e.Item 赋值：虚拟模式下选中/滚动通知到达时若该行尚未生成，
         // ListView 内部按显示索引取行会拿到 null 并抛 NullReferenceException
         var item = (e.ItemIndex >= 0 && e.ItemIndex < items.Count) ? items[e.ItemIndex] : null;
-        var lvi = new ListViewItem(item?.Name ?? "") { Tag = item };
-        lvi.SubItems.Add(item is { ResultText.Length: > 0 } ? item.ResultText : "—");
+        // 第一列显示 1 起始的序号，与队列顺序一致
+        var lvi = new ListViewItem(item == null ? "" : (e.ItemIndex + 1).ToString()) { Tag = item };
         if (item != null)
         {
-            lvi.SubItems.Add(item.State switch
+            lvi.SubItems.Add(item.Name);
+            // 状态文字与颜色一一对应，单个 switch 产出，避免两处映射失步
+            (string Text, Color Fore) state = item.State switch
             {
-                FileState.Success => "✔ 成功",
-                FileState.Skipped => "✘ 跳过",
-                _ => "待处理",
-            });
-            lvi.SubItems[2].ForeColor = item.State switch
-            {
-                FileState.Success => Color.Green,
-                FileState.Skipped => Color.Red,
-                _ => SystemColors.WindowText,
+                FileState.Success => ("完成", Color.Green),
+                FileState.Skipped => ("已跳过", Color.FromArgb(202, 138, 4)),
+                _ => ("待处理", SystemColors.WindowText),
             };
+            lvi.SubItems.Add(state.Text);
+            lvi.SubItems[2].ForeColor = state.Fore;
         }
         e.Item = lvi;
     }
@@ -668,11 +731,15 @@ public class MainForm : Form
         if (index < 0 || index >= items.Count) return;
         var item = items[index];
 
-        ShowImage(picOriginal, () => LoadPreview(item.Path));
-        ShowImage(picResult, item.Success
-            ? () => LoadPreview(item.OutputPath)
-            : () => null);
-        lblResultCaption.Text = item.Success ? "结果" : "结果（未生成）";
+        // 预览区收起时不加载图片，避免批量处理时白白解码内存
+        if (previewExpanded)
+        {
+            ShowImage(picOriginal, () => LoadPreview(item.Path));
+            ShowImage(picResult, item.Success
+                ? () => LoadPreview(item.OutputPath)
+                : () => null);
+            lblResultCaption.Text = item.Success ? "结果" : "结果（未生成）";
+        }
         lblInfo.Text = item.Path + "\n" + (item.ResultText.Length > 0 ? item.ResultText : "待处理");
     }
 
