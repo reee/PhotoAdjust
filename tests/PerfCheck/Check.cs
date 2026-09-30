@@ -12,8 +12,22 @@ namespace PerfCheck;
 static class Program
 {
     const int SpeedFileCount = 2000;
-    static readonly string TestsDir = @"D:\Projects\PhotoAdjust\tests";
+    static readonly string TestsDir = FindTestsDir();
     static readonly BindingFlags NF = BindingFlags.NonPublic | BindingFlags.Instance;
+
+    /// <summary>从程序所在目录逐级向上定位含 baseline 的 tests 目录，不依赖绝对路径。</summary>
+    static string FindTestsDir()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            string candidate = Path.Combine(dir.FullName, "tests");
+            if (Directory.Exists(Path.Combine(candidate, "baseline")))
+                return candidate;
+            dir = dir.Parent!;
+        }
+        throw new InvalidOperationException("未找到包含 baseline 的 tests 目录");
+    }
 
     enum Phase { Enqueue, Process, WaitB, Clear, ReEnqueue, Cancel, WaitC, Done }
 
@@ -129,8 +143,8 @@ static class Program
             if (img.PropertyIdList.Contains(0x0112))
             {
                 var p = img.GetPropertyItem(0x0112);
-                if (p.Value.Length > 0 && p.Value[0] is >= 1 and <= 8)
-                    ori = p.Value[0];
+                if (p is { Value: { Length: > 0 } v } && v[0] is >= 1 and <= 8)
+                    ori = v[0];
             }
 
             using var stored = new Bitmap(img);
