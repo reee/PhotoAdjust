@@ -126,6 +126,9 @@ public class MainForm : Form
         lvFiles.Columns.Add("文件", 292);
         lvFiles.Columns.Add("状态", 58);
         lvFiles.RetrieveVirtualItem += OnRetrieveVirtualItem;
+        // 虚拟模式下原生绘制不应用 per-item ForeColor，开启 OwnerDraw 由托管代码着色
+        lvFiles.OwnerDraw = true;
+        lvFiles.DrawItem += OnFilesDrawItem;
         lvFiles.DrawSubItem += OnFilesDrawSubItem;
         lvFiles.SelectedIndexChanged += (_, _) => ShowSelectedItem();
         lvFiles.MouseMove += OnFilesMouseMove;
@@ -544,22 +547,27 @@ public class MainForm : Form
     };
 
     /// <summary>
-    /// 虚拟模式下 ListView 不应用 per-item 的 ForeColor，状态列文字在 DrawSubItem
-    /// 里手动着色（背景与选中高亮仍由控件默认绘制）；其余列走默认绘制。
+    /// OwnerDraw 行绘制：背景与选中高亮走默认实现，文字在 DrawSubItem 中逐列绘制。
     /// </summary>
-    private void OnFilesDrawSubItem(object? sender, ListViewDrawSubItemEventArgs e)
+    private void OnFilesDrawItem(object? sender, DrawListViewItemEventArgs e)
     {
-        if (e.Column != lvFiles.Columns[2] || e.Item.Tag is not FileItem item)
+        e.DrawBackground();
+        e.DrawFocusRectangle();
+    }
+
+    /// <summary>状态列文字按队列状态着色（虚拟模式原生绘制不应用 per-item ForeColor），其余列默认绘制。</summary>
+    private void OnFilesDrawSubItem(object? sender, DrawListViewSubItemEventArgs e)
+    {
+        e.DrawBackground();
+        if (e.ColumnIndex == 2 && e.Item.Tag is FileItem item)
         {
-            e.DrawDefault = true;
-            return;
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, lvFiles.Font, e.Bounds,
+                StatusColor(item.State), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
         }
-        e.DrawDefault = false;
-        e.DrawBackground = false;
-        e.DrawFocusRect = false;
-        e.DrawText = false;
-        TextRenderer.DrawText(e.Graphics, e.SubItem.Text, lvFiles.Font, e.SubItem.Bounds,
-            StatusColor(item.State), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+        else
+        {
+            e.DrawText();
+        }
     }
 
     private void ClearQueue()
