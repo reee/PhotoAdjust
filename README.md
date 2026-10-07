@@ -60,7 +60,7 @@ dotnet run --project tests/ExifCheck              # 解析层单元测试
 dotnet run --project tests/PerfCheck              # 完整回归 + 速度 + 取消
 dotnet run --project tests/PerfCheck -- --skipA   # 跳过阶段 A
 dotnet run --project tests/PerfCheck -- --updateBaseline   # 用当前管线输出重写基线
-dotnet run --project tests/PerfCheck -- --maxGap 10000     # 放宽 UI 流畅度阈值（CI 用）
+dotnet run --project tests/PerfCheck -- --maxGap 0       # 跳过 UI 流畅度断言（CI 用，本地默认 1s）
 ```
 
 `tests/` 根目录的 `*.jpg` 为各场景**合成**测试样张（EXIF 方向 1~8、比例不符、损坏、纯色等），不含真实照片。
