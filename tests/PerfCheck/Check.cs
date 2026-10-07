@@ -37,16 +37,18 @@ static class Program
         bool pass = true;
         bool skipA = args.Contains("--skipA");
         if (!skipA)
-            pass &= RunRegressionTest();
+            pass &= RunRegressionTest(args.Contains("--updateBaseline"));
         pass &= RunSpeedAndCancelTest();
         Console.WriteLine(pass ? "RESULT: PASS" : "RESULT: FAIL");
         return pass ? 0 : 1;
     }
 
-    // ── 阶段 A：输出回归（与回滚前原版产品的基线输出逐像素比对）──
-    static bool RunRegressionTest()
+    // ── 阶段 A：输出回归（与基线输出逐像素比对；--updateBaseline 用当前管线输出重写基线）──
+    static bool RunRegressionTest(bool updateBaseline)
     {
-        Console.WriteLine("== 阶段 A：输出回归（对照原版基线输出）==");
+        Console.WriteLine(updateBaseline
+            ? "== 阶段 A：重写基线 =="
+            : "== 阶段 A：输出回归（对照基线输出）==");
         bool pass = true;
 
         foreach (var src in Directory.EnumerateFiles(TestsDir, "*.jpg").OrderBy(x => x))
@@ -103,16 +105,23 @@ static class Program
                     continue;
                 }
 
-                // 与原版基线（回滚前产品输出）逐像素比对：回滚后行为应与原版一致
+                var result = PhotoProcessor.Process(src);
                 string basePath = Path.Combine(TestsDir, "baseline", name);
+                if (updateBaseline)
+                {
+                    File.WriteAllBytes(basePath, result.Data);
+                    Console.WriteLine($"  {name,-22} 基线已更新（{result.Data.Length}B）");
+                    continue;
+                }
+
+                // 与基线（原版管线输出）逐像素比对
                 if (!File.Exists(basePath))
                 {
-                    Console.WriteLine($"  {name,-22} !! 基线缺失，无法比对");
+                    Console.WriteLine($"  {name,-22} !! 基线缺失，无法比对（可先运行 --updateBaseline 生成）");
                     pass = false;
                     continue;
                 }
 
-                var result = PhotoProcessor.Process(src);
                 using var nw = new Bitmap(new MemoryStream(result.Data));
                 using var old = new Bitmap(basePath);
                 double mae = PixelMae(old, nw);

@@ -56,6 +56,8 @@ public class MainForm : Form
     private readonly Panel separator;
     // 前后对比预览区默认收起，仅保留列表与文件信息
     private bool previewExpanded;
+    // 预览解码序号：切换选择/收起预览后丢弃过期解码结果
+    private int previewSeq;
 
     // 两种预览布局的窗口客户区尺寸（ApplyPreviewLayout 与控件定位共用，避免两处失步）
     private const int ExpandedClientWidth = 990;
@@ -65,6 +67,10 @@ public class MainForm : Form
 
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".jpg", ".jpeg", ".png", ".bmp" };
+
+    // 常见但不受支持的图片格式：扫描时计数并在汇总里提示，避免用户以为文件"消失"了
+    private static readonly HashSet<string> UnsupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+        { ".heic", ".heif", ".webp", ".gif", ".tif", ".tiff" };
 
     public MainForm(string[]? initialFiles = null)
     {
@@ -120,6 +126,7 @@ public class MainForm : Form
         lvFiles.Columns.Add("文件", 292);
         lvFiles.Columns.Add("状态", 58);
         lvFiles.RetrieveVirtualItem += OnRetrieveVirtualItem;
+        lvFiles.DrawSubItem += OnFilesDrawSubItem;
         lvFiles.SelectedIndexChanged += (_, _) => ShowSelectedItem();
         lvFiles.MouseMove += OnFilesMouseMove;
         lvFiles.MouseLeave += (_, _) => fileTooltip.Hide(lvFiles);
@@ -297,7 +304,7 @@ public class MainForm : Form
         // 先调 MinimumSize 再调 ClientSize，两个方向都不会被最小尺寸卡住
         if (previewExpanded)
         {
-            separator.Width = ExpandedClientWidth;
+            separator.Width = Scaled(ExpandedClientWidth);
             btnTogglePreview.Text = "◂ 收起对比";
             // 收起期间跳过了图片加载，展开时按当前选中项补一次
             ShowSelectedItem();
@@ -305,17 +312,21 @@ public class MainForm : Form
         }
         else
         {
-            separator.Width = CollapsedClientWidth;
+            separator.Width = Scaled(CollapsedClientWidth);
             btnTogglePreview.Text = "对比预览 ▸";
             SetWindowSize(CollapsedClientWidth, CollapsedClientHeight);
         }
     }
 
-    /// <summary>按客户区尺寸设置窗口大小（MinimumSize 为窗口外尺寸，与客户区差一个边框：宽 +10、高 +30）。</summary>
+    /// <summary>布局常量按当前 DPI 缩放（控件坐标会被 AutoScale 放大，客户区常量必须同步放大）。</summary>
+    private int Scaled(int value) => (int)Math.Round(value * DeviceDpi / 96f);
+
+    /// <summary>按客户区尺寸设置窗口大小；MinimumSize 用实际窗口尺寸回推，避免边框假设随 DPI 失准。</summary>
     private void SetWindowSize(int clientWidth, int clientHeight)
     {
-        MinimumSize = new Size(clientWidth + 10, clientHeight + 30);
-        ClientSize = new Size(clientWidth, clientHeight);
+        MinimumSize = new Size(1, 1);
+        ClientSize = new Size(Scaled(clientWidth), Scaled(clientHeight));
+        MinimumSize = Size;
     }
 
     private async Task PickFiles()
@@ -348,10 +359,12 @@ public class MainForm : Form
         if (scanning) return;
         SetScanning(true);
         lblSummary.Text = "正在扫描…";
+        int unsupportedImages = 0;
         try
         {
-            var (newItems, firstNew, error) = await Task.Run(
+            var (newItems, firstNew, unsupportedImagesFound, error) = await Task.Run(
                 () => BuildNewItems(paths, pathIndex, outputNameIndex, ReportScanProgress));
+            unsupportedImages = unsupportedImagesFound;
             if (newItems.Count > 0)
             {
                 int baseIndex = items.Count;
@@ -385,14 +398,16 @@ public class MainForm : Form
         finally
         {
             SetScanning(false);
-            // 加载完成后以文件总数取代默认的目标要求说明
-            lblSummary.Text = $"共 {items.Count} 个文件";
+            // 加载完成后以文件总数取代默认的目标要求说明；不支持的图片格式（HEIC 等）单独提示
+            lblSummary.Text = unsupportedImages > 0
+                ? $"共 {items.Count} 个文件（另有 {unsupportedImages} 个不支持的图片格式未加入）"
+                : $"共 {items.Count} 个文件";
         }
     }
 
     /// <summary>后台线程执行：枚举文件、过滤扩展名、按路径与输出名去重，产出待入队批次。
     /// 全局索引只读、批次内冲突用局部索引判断，保证不触碰 UI 线程状态。</summary>
-    private static (List<FileItem> NewItems, int FirstNew, Exception? Error) BuildNewItems(
+    private static (List<FileItem> NewItems, int FirstNew, int UnsupportedImages, Exception? Error) BuildNewItems(
         IReadOnlyList<string> paths,
         HashSet<string> pathIndex,
         Dictionary<string, FileItem> outputNameIndex,
@@ -403,6 +418,7 @@ public class MainForm : Form
         var newItems = new List<FileItem>();
         Exception? error = null;
         int firstNew = -1;
+        int unsupportedImages = 0;
 
         foreach (var path in paths)
         {
@@ -424,8 +440,13 @@ public class MainForm : Form
             {
                 foreach (var file in files)
                 {
-                    if (!SupportedExtensions.Contains(System.IO.Path.GetExtension(file)))
+                    string ext = System.IO.Path.GetExtension(file);
+                    if (!SupportedExtensions.Contains(ext))
+                    {
+                        if (UnsupportedImageExtensions.Contains(ext))
+                            unsupportedImages++;
                         continue;
+                    }
                     photos++;
                     if (photos % 500 == 0)
                         onProgress(photos);
@@ -465,7 +486,7 @@ public class MainForm : Form
             }
         }
 
-        return (newItems, firstNew, error);
+        return (newItems, firstNew, unsupportedImages, error);
     }
 
     /// <summary>后台线程回调，限流刷新扫描进度（每 500 张照片一次）。</summary>
@@ -502,17 +523,43 @@ public class MainForm : Form
         if (item != null)
         {
             lvi.SubItems.Add(item.Name);
-            // 状态文字与颜色一一对应，单个 switch 产出，避免两处映射失步
-            (string Text, Color Fore) state = item.State switch
-            {
-                FileState.Success => ("完成", Color.Green),
-                FileState.Skipped => ("已跳过", Color.FromArgb(202, 138, 4)),
-                _ => ("待处理", SystemColors.WindowText),
-            };
-            lvi.SubItems.Add(state.Text);
-            lvi.SubItems[2].ForeColor = state.Fore;
+            lvi.SubItems.Add(StateText(item.State));
+            lvi.SubItems[2].ForeColor = StatusColor(item.State);
         }
         e.Item = lvi;
+    }
+
+    private static string StateText(FileState state) => state switch
+    {
+        FileState.Success => "完成",
+        FileState.Skipped => "已跳过",
+        _ => "待处理",
+    };
+
+    private static Color StatusColor(FileState state) => state switch
+    {
+        FileState.Success => Color.Green,
+        FileState.Skipped => Color.FromArgb(202, 138, 4),
+        _ => SystemColors.WindowText,
+    };
+
+    /// <summary>
+    /// 虚拟模式下 ListView 不应用 per-item 的 ForeColor，状态列文字在 DrawSubItem
+    /// 里手动着色（背景与选中高亮仍由控件默认绘制）；其余列走默认绘制。
+    /// </summary>
+    private void OnFilesDrawSubItem(object? sender, ListViewDrawSubItemEventArgs e)
+    {
+        if (e.Column != lvFiles.Columns[2] || e.Item.Tag is not FileItem item)
+        {
+            e.DrawDefault = true;
+            return;
+        }
+        e.DrawDefault = false;
+        e.DrawBackground = false;
+        e.DrawFocusRect = false;
+        e.DrawText = false;
+        TextRenderer.DrawText(e.Graphics, e.SubItem.Text, lvFiles.Font, e.SubItem.Bounds,
+            StatusColor(item.State), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
     }
 
     private void ClearQueue()
@@ -556,6 +603,9 @@ public class MainForm : Form
         try
         {
             Directory.CreateDirectory(outputDir);
+            // 清理上一轮进程异常退出残留的临时文件
+            foreach (var stale in Directory.EnumerateFiles(outputDir, "*.pa-tmp"))
+                try { File.Delete(stale); } catch { }
         }
         catch (Exception ex)
         {
@@ -666,7 +716,18 @@ public class MainForm : Form
         {
             var result = PhotoProcessor.Process(path);
             string outputPath = System.IO.Path.Combine(outputDir, outputName);
-            File.WriteAllBytes(outputPath, result.Data);
+            // 先写临时文件再原子替换：进程中途退出/断电不会在成品路径上留下截断的 JPEG
+            string tmpPath = outputPath + ".pa-tmp";
+            try
+            {
+                File.WriteAllBytes(tmpPath, result.Data);
+                File.Move(tmpPath, outputPath, overwrite: true);
+            }
+            catch
+            {
+                try { File.Delete(tmpPath); } catch { }
+                throw;
+            }
             return (true, $"480×640 │ {result.FileSize / 1024.0:F1}KB │ 300DPI", outputPath);
         }
         catch (Exception ex)
@@ -734,13 +795,34 @@ public class MainForm : Form
         // 预览区收起时不加载图片，避免批量处理时白白解码内存
         if (previewExpanded)
         {
-            ShowImage(picOriginal, () => LoadPreview(item.Path));
-            ShowImage(picResult, item.Success
-                ? () => LoadPreview(item.OutputPath)
-                : () => null);
-            lblResultCaption.Text = item.Success ? "结果" : "结果（未生成）";
+            int seq = ++previewSeq;
+            string srcPath = item.Path;
+            string? outPath = item.Success ? item.OutputPath : null;
+            lblResultCaption.Text = outPath != null ? "结果" : "结果（未生成）";
+            _ = LoadPreviewsAsync(seq, srcPath, outPath);
         }
         lblInfo.Text = item.Path + "\n" + (item.ResultText.Length > 0 ? item.ResultText : "待处理");
+    }
+
+    /// <summary>预览图在后台线程解码（大原图全尺寸解码会卡 UI）；解码期间切换选择则丢弃结果。</summary>
+    private async Task LoadPreviewsAsync(int seq, string srcPath, string? outPath)
+    {
+        Image? original = null, result = null;
+        try
+        {
+            original = await Task.Run(() => LoadPreview(srcPath));
+            if (outPath != null)
+                result = await Task.Run(() => LoadPreview(outPath));
+        }
+        catch { }
+        if (seq != previewSeq || IsDisposed)
+        {
+            original?.Dispose();
+            result?.Dispose();
+            return;
+        }
+        ShowImage(picOriginal, () => original);
+        ShowImage(picResult, () => result);
     }
 
     private static void ShowImage(PictureBox box, Func<Image?> loader)
@@ -784,7 +866,8 @@ public class MainForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        // 立即取消后台处理，避免进程退出时正在写入的输出文件被截断
+        // 取消尚未开始的后台处理；输出采用"临时文件+原子替换"，
+        // 即使进程在写入中途退出，成品路径上也不会出现截断的 JPEG
         processCts?.Cancel();
         picOriginal.Image?.Dispose();
         picResult.Image?.Dispose();

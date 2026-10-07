@@ -16,6 +16,10 @@ public static class PhotoProcessor
     public const int PreferredBytes = 30 * 1024; // 收敛到 30KB 附近，两种 KB 口径下都稳在 20~40 区间内
     public const float TargetDpi = 300f;
 
+    // GDI+ 解码不支持降采样，超大源图全尺寸解码的内存峰值不可控（8 线程并行时尤甚），
+    // 超过上限直接拒绝；典型手机/证件照片远低于该值
+    public const long MaxSourcePixels = 40_000_000;
+
     private const double AspectTolerance = 0.005; // 允许 0.5% 的宽高比浮点误差
 
     // 编码器信息只含元数据，跨线程共享安全
@@ -39,6 +43,15 @@ public static class PhotoProcessor
     public static Result Process(string sourcePath)
     {
         byte[] fileBytes = ReadFileBytes(sourcePath);
+
+        // 解码前先按文件头预读像素数，超限直接拒绝，避免全尺寸解码撑爆内存
+        if (TryGetStoredDimensions(fileBytes, out int rawW, out int rawH)
+            && (long)rawW * Math.Abs(rawH) > MaxSourcePixels)
+        {
+            throw new InvalidOperationException(
+                $"图片像素过大（{rawW}×{Math.Abs(rawH)}，上限 {MaxSourcePixels / 1_000_000}MP），已跳过");
+        }
+
         int orientation = ReadExifOrientation(fileBytes);
         bool rotated = orientation is >= 5 and <= 8; // 90° 族方向：显示宽高与存储宽高互换
 
@@ -62,13 +75,35 @@ public static class PhotoProcessor
             // 90° 族先解到 640×480，旋转回正后恰好 480×640
             int targetW = rotated ? TargetHeight : TargetWidth;
             int targetH = rotated ? TargetWidth : TargetHeight;
+
+            // 大比例缩小分两步：先双线性粗缩到目标的 2 倍，再高质量双三次精缩。
+            // GDI+ 对超大源图单步 bicubic 又慢又易出边缘伪影，两阶段既快又稳。
+            Image drawSource = stored;
+            Bitmap? intermediate = null;
+            double factor = Math.Max((double)stored.Width / targetW, (double)stored.Height / targetH);
+            if (factor > 2.0)
+            {
+                int iw = Math.Max(targetW, (int)(stored.Width / factor * 2));
+                int ih = Math.Max(targetH, (int)(stored.Height / factor * 2));
+                intermediate = new Bitmap(iw, ih, PixelFormat.Format32bppArgb);
+                using (var g = Graphics.FromImage(intermediate))
+                {
+                    g.InterpolationMode = InterpolationMode.Bilinear;
+                    g.PixelOffsetMode = PixelOffsetMode.Half;
+                    g.DrawImage(stored, new Rectangle(0, 0, iw, ih));
+                }
+                drawSource = intermediate;
+            }
+
             using var resized = new Bitmap(targetW, targetH, PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(resized))
             {
+                g.Clear(Color.White); // 带透明通道的 PNG 源按白底合成，避免 JPEG 中出现黑底
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                 g.PixelOffsetMode = PixelOffsetMode.Half;
-                g.DrawImage(stored, new Rectangle(0, 0, targetW, targetH));
+                g.DrawImage(drawSource, new Rectangle(0, 0, targetW, targetH));
             }
+            intermediate?.Dispose();
 
             resized.SetResolution(TargetDpi, TargetDpi);
             ApplyOrientation(resized, orientation);
@@ -94,6 +129,59 @@ public static class PhotoProcessor
         {
             throw new InvalidOperationException("无法读取图片文件（文件不存在、被占用或无权限）");
         }
+    }
+
+    /// <summary>不解码、只按文件头读取存储宽高（JPEG SOFn / PNG IHDR / BMP DIB）。
+    /// 无法识别时返回 false，由调用方回退到解码路径。</summary>
+    private static bool TryGetStoredDimensions(byte[] b, out int width, out int height)
+    {
+        width = height = 0;
+
+        if (b.Length >= 4 && b[0] == 0xFF && b[1] == 0xD8)
+        {
+            int pos = 2;
+            while (pos + 4 <= b.Length && b[pos] == 0xFF)
+            {
+                int marker = b[pos + 1];
+                if (marker is 0x00 or 0xFF or 0xD8 or 0xD9 or 0x01 or (>= 0xD0 and <= 0xD7))
+                {
+                    pos += 2;
+                    continue;
+                }
+                if (marker == 0xDA)
+                    break; // SOS：帧内尺寸字段之前必须已遇到 SOFn
+                int len = (b[pos + 2] << 8) | b[pos + 3];
+                if (len < 2 || pos + 2 + len > b.Length)
+                    break;
+                if (marker is >= 0xC0 and <= 0xCF and not (0xC4 or 0xC8 or 0xCC))
+                {
+                    if (pos + 9 > b.Length)
+                        return false;
+                    height = (b[pos + 5] << 8) | b[pos + 6];
+                    width = (b[pos + 7] << 8) | b[pos + 8];
+                    return width > 0 && height > 0;
+                }
+                pos += 2 + len;
+            }
+            return false;
+        }
+
+        if (b.Length >= 24 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47
+            && b[12] == (byte)'I' && b[13] == (byte)'H' && b[14] == (byte)'D' && b[15] == (byte)'R')
+        {
+            width = (b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19];
+            height = (b[20] << 24) | (b[21] << 16) | (b[22] << 8) | b[23];
+            return width > 0 && height > 0;
+        }
+
+        if (b.Length >= 26 && b[0] == (byte)'B' && b[1] == (byte)'M')
+        {
+            width = b[18] | (b[19] << 8) | (b[20] << 16) | (b[21] << 24);
+            height = b[22] | (b[23] << 8) | (b[24] << 16) | (b[25] << 24);
+            return width > 0 && height != 0;
+        }
+
+        return false;
     }
 
     /// <summary>

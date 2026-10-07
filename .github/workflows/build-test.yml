@@ -1,0 +1,23 @@
+name: build-and-test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build
+        run: dotnet build PhotoAdjust.sln -c Release
+      - name: EXIF / parser unit tests
+        run: dotnet run --project tests/ExifCheck -c Release
+      # 阶段 B/C：并行处理速度、取消响应与 UI 流畅度（跳过阶段 A 像素回归，
+      # 基线需在 Windows 本机用 --updateBaseline 生成后另行验证）
+      - name: PerfCheck (speed + cancel)
+        run: dotnet run --project tests/PerfCheck -c Release -- --skipA
