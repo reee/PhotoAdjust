@@ -559,7 +559,7 @@ public class MainForm : Form
     private void OnFilesDrawSubItem(object? sender, DrawListViewSubItemEventArgs e)
     {
         e.DrawBackground();
-        if (e.ColumnIndex == 2 && e.Item.Tag is FileItem item)
+        if (e.ColumnIndex == 2 && e.Item?.Tag is FileItem item && e.SubItem != null)
         {
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text, lvFiles.Font, e.Bounds,
                 StatusColor(item.State), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
