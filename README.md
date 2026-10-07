@@ -64,7 +64,7 @@ dotnet run --project tests/PerfCheck -- --maxGap 0       # 跳过 UI 流畅度�
 ```
 
 `tests/` 根目录的 `*.jpg` 为各场景**合成**测试样张（EXIF 方向 1~8、比例不符、损坏、纯色等），不含真实照片。
-新增样张后需先在 Windows 上运行一次 `--updateBaseline` 生成基线，阶段 A 才能比对。
+新增样张或改动缩放/编码管线后，需先在 Windows 上运行一次 `--updateBaseline` 重写基线，阶段 A 才能比对。
 GitHub Actions（`.github/workflows/build-test.yml`）在每次 push 时构建并运行 ExifCheck 与 PerfCheck 阶段 B/C。
 
 ## 代码结构

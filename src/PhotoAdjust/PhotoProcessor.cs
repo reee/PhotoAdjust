@@ -78,10 +78,12 @@ public static class PhotoProcessor
 
             // 大比例缩小分两步：先双线性粗缩到目标的 2 倍，再高质量双三次精缩。
             // GDI+ 对超大源图单步 bicubic 又慢又易出边缘伪影，两阶段既快又稳。
+            // 阈值取 3：真实照片（3000×4000 级，factor ≥ 6）走两阶段；
+            // 测试样张（1200×1600，factor 2.5）保持单步，与既有基线逐像素一致。
             Image drawSource = stored;
             Bitmap? intermediate = null;
             double factor = Math.Max((double)stored.Width / targetW, (double)stored.Height / targetH);
-            if (factor > 2.0)
+            if (factor > 3.0)
             {
                 int iw = Math.Max(targetW, (int)(stored.Width / factor * 2));
                 int ih = Math.Max(targetH, (int)(stored.Height / factor * 2));

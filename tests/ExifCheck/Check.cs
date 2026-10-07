@@ -167,10 +167,35 @@ static class Program
             Check(bmp3.Width == 480 && bmp3.Height == 640 && paddedReal.Length == result.Data.Length + 500,
                 "真实 JPEG 填充 500B 后仍可解码");
 
-        // 两阶段缩放路径：源图远大于目标（factor > 2）
+        // 单步缩放路径：factor 2.5（≤3 阈值），与既有基线一致
         var big = PhotoProcessor.Process(Path.Combine(tests, "big3to4.jpg"));
         using (var bmp4 = new Bitmap(new MemoryStream(big.Data)))
-            Check(bmp4.Width == 480 && bmp4.Height == 640, "big3to4.jpg 两阶段缩放后 480×640");
+            Check(bmp4.Width == 480 && bmp4.Height == 640, "big3to4.jpg（factor 2.5）单步缩放后 480×640");
+
+        // 两阶段缩放路径：运行时生成 3000×4000 源图（factor 6.25 > 3）
+        string bigSrc = Path.Combine(Path.GetTempPath(), "pa_big_" + Guid.NewGuid().ToString("N") + ".jpg");
+        try
+        {
+            using (var src = new Bitmap(3000, 4000, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                using (var g = Graphics.FromImage(src))
+                {
+                    g.Clear(Color.FromArgb(60, 90, 130));
+                    g.FillRectangle(Brushes.Crimson, 800, 600, 900, 1200);
+                    g.FillEllipse(Brushes.Khaki, 1700, 2200, 700, 700);
+                }
+                src.Save(bigSrc, System.Drawing.Imaging.ImageFormat.Jpeg);
+            }
+            var bigResult = PhotoProcessor.Process(bigSrc);
+            using var bmp5 = new Bitmap(new MemoryStream(bigResult.Data));
+            Check(bmp5.Width == 480 && bmp5.Height == 640
+                && bigResult.Data.Length is >= 20 * 1024 and <= 40 * 1024,
+                "3000×4000（factor 6.25）两阶段缩放输出合规");
+        }
+        finally
+        {
+            File.Delete(bigSrc);
+        }
 
         // 像素护栏：构造 9000×6000 头，Process 必须在解码前拒绝
         string huge = Path.Combine(Path.GetTempPath(), "pa_huge_" + Guid.NewGuid().ToString("N") + ".jpg");

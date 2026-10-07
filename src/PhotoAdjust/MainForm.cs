@@ -555,19 +555,22 @@ public class MainForm : Form
         e.DrawFocusRectangle();
     }
 
-    /// <summary>状态列文字按队列状态着色（虚拟模式原生绘制不应用 per-item ForeColor），其余列默认绘制。</summary>
+    /// <summary>状态列文字按队列状态着色（虚拟模式原生绘制不应用 per-item ForeColor），其余列按选中态着色。</summary>
     private void OnFilesDrawSubItem(object? sender, DrawListViewSubItemEventArgs e)
     {
-        e.DrawBackground();
-        if (e.ColumnIndex == 2 && e.Item?.Tag is FileItem item && e.SubItem != null)
-        {
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, lvFiles.Font, e.Bounds,
-                StatusColor(item.State), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
-        }
-        else
-        {
-            e.DrawText();
-        }
+        // 选中行的高亮背景已由 DrawItem 的 DrawBackground 绘制；
+        // 再画子项背景会用控件底色盖掉高亮，因此选中时跳过
+        if ((e.ItemState & ListViewItemStates.Selected) == 0)
+            e.DrawBackground();
+        if (e.SubItem == null)
+            return;
+        Color fore = e.ColumnIndex == 2 && e.Item?.Tag is FileItem item
+            ? StatusColor(item.State)
+            : (e.ItemState & ListViewItemStates.Selected) != 0
+                ? SystemColors.HighlightText
+                : lvFiles.ForeColor;
+        TextRenderer.DrawText(e.Graphics, e.SubItem.Text, lvFiles.Font, e.Bounds, fore,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
     }
 
     private void ClearQueue()
@@ -611,15 +614,19 @@ public class MainForm : Form
         try
         {
             Directory.CreateDirectory(outputDir);
-            // 清理上一轮进程异常退出残留的临时文件
-            foreach (var stale in Directory.EnumerateFiles(outputDir, "*.pa-tmp"))
-                try { File.Delete(stale); } catch { }
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, $"无法创建输出文件夹：{ex.Message}", "错误");
             return;
         }
+        // 清理上一轮进程异常退出残留的临时文件（失败不影响处理启动）
+        try
+        {
+            foreach (var stale in Directory.EnumerateFiles(outputDir, "*.pa-tmp"))
+                File.Delete(stale);
+        }
+        catch { }
 
         // 输出目录中包含本轮待处理的源文件时，输出会覆盖这些原件（如 photo.jpg 处理后写回原位置），需用户确认
         string fullOutput = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(outputDir));
