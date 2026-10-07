@@ -11,7 +11,7 @@
     <RootNamespace>PhotoAdjust</RootNamespace>
     <Product>高考图片合规调整工具</Product>
     <AssemblyTitle>高考图片合规调整工具</AssemblyTitle>
-    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
 
 </Project>

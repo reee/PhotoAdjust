@@ -65,6 +65,9 @@ public class MainForm : Form
     private const int CollapsedClientWidth = 470;
     private const int CollapsedClientHeight = 610;
 
+    /// <summary>布局设计基准 DPI：控件坐标按 96 DPI 编写，构造时缩放到当前 DPI。</summary>
+    private const float DesignDpi = 96f;
+
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".jpg", ".jpeg", ".png", ".bmp" };
 
@@ -287,6 +290,20 @@ public class MainForm : Form
 
         AcceptButton = btnProcess;
 
+        // 高 DPI（4K 200% 等）：把控件从 96 DPI 设计坐标缩放到当前 DPI。
+        // 窗口客户区由 SetWindowSize/Scaled 单独负责，Scale 对窗体边界的改动会被其覆盖；
+        // ListView 列宽不参与 Control.Scale，需单独缩放。
+        float dpiFactor = DeviceDpi / DesignDpi;
+        if (Math.Abs(dpiFactor - 1f) > 0.001f)
+        {
+            Scale(new SizeF(dpiFactor, dpiFactor));
+            foreach (ColumnHeader column in lvFiles.Columns)
+                column.Width = Scaled(column.Width);
+        }
+        // 跨不同缩放率的显示器拖动时，PerMonitorV2 下 WinForms 自动重缩放控件与列宽，
+        // 这里只需按新 DPI 重算窗口客户区（尺寸/最小尺寸是按旧 DPI 写入的物理像素）
+        DpiChanged += (_, _) => ApplyPreviewLayout();
+
         ApplyPreviewLayout();
 
         if (initialFiles is { Length: > 0 })
@@ -321,8 +338,8 @@ public class MainForm : Form
         }
     }
 
-    /// <summary>布局常量按当前 DPI 缩放（控件坐标会被 AutoScale 放大，客户区常量必须同步放大）。</summary>
-    private int Scaled(int value) => (int)Math.Round(value * DeviceDpi / 96f);
+    /// <summary>布局常量按当前 DPI 缩放（控件坐标在构造时经 Scale 缩放到当前 DPI，客户区常量必须同步放大）。</summary>
+    private int Scaled(int value) => (int)Math.Round(value * DeviceDpi / DesignDpi);
 
     /// <summary>按客户区尺寸设置窗口大小；MinimumSize 用实际窗口尺寸回推，避免边框假设随 DPI 失准。</summary>
     private void SetWindowSize(int clientWidth, int clientHeight)
