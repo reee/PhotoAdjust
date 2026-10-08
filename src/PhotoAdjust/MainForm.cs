@@ -129,10 +129,11 @@ public class MainForm : Form
         lvFiles.Columns.Add("文件", 292);
         lvFiles.Columns.Add("状态", 58);
         lvFiles.RetrieveVirtualItem += OnRetrieveVirtualItem;
-        // 虚拟模式下原生绘制不应用 per-item ForeColor，开启 OwnerDraw 由托管代码着色
-        lvFiles.OwnerDraw = true;
-        lvFiles.DrawItem += OnFilesDrawItem;
-        lvFiles.DrawSubItem += OnFilesDrawSubItem;
+        // 状态列颜色经 SubItems[2].ForeColor 由原生自定义绘制传播（见 OnRetrieveVirtualItem）。
+        // 不要开启 ListView.OwnerDraw：托管自绘会绕过 WinForms 对虚拟列表的两处 comctl32
+        // 怪癖修正——① HideSelection=false 时通知里所有行都带 CDIS_SELECTED（自绘代码据此
+        // 用高亮前景色画未选中行 → 白底白字"消失"）；② 个别子项通知因取不到子项矩形而
+        // 直接 SKIPDEFAULT 不画文字（→ 单元格空白）。原生路径两者都已正确处理。
         lvFiles.SelectedIndexChanged += (_, _) => ShowSelectedItem();
         lvFiles.MouseMove += OnFilesMouseMove;
         lvFiles.MouseLeave += (_, _) => fileTooltip.Hide(lvFiles);
@@ -539,7 +540,7 @@ public class MainForm : Form
         // ListView 内部按显示索引取行会拿到 null 并抛 NullReferenceException
         var item = (e.ItemIndex >= 0 && e.ItemIndex < items.Count) ? items[e.ItemIndex] : null;
         // 第一列显示 1 起始的序号，与队列顺序一致
-        var lvi = new ListViewItem(item == null ? "" : (e.ItemIndex + 1).ToString()) { Tag = item };
+        var lvi = new ListViewItem(item == null ? "" : (e.ItemIndex + 1).ToString());
         if (item != null)
         {
             lvi.SubItems.Add(item.Name);
@@ -562,33 +563,6 @@ public class MainForm : Form
         FileState.Skipped => Color.FromArgb(202, 138, 4),
         _ => SystemColors.WindowText,
     };
-
-    /// <summary>
-    /// OwnerDraw 行绘制：背景与选中高亮走默认实现，文字在 DrawSubItem 中逐列绘制。
-    /// </summary>
-    private void OnFilesDrawItem(object? sender, DrawListViewItemEventArgs e)
-    {
-        e.DrawBackground();
-        e.DrawFocusRectangle();
-    }
-
-    /// <summary>状态列文字按队列状态着色（虚拟模式原生绘制不应用 per-item ForeColor），其余列按选中态着色。</summary>
-    private void OnFilesDrawSubItem(object? sender, DrawListViewSubItemEventArgs e)
-    {
-        // 选中行的高亮背景已由 DrawItem 的 DrawBackground 绘制；
-        // 再画子项背景会用控件底色盖掉高亮，因此选中时跳过
-        if ((e.ItemState & ListViewItemStates.Selected) == 0)
-            e.DrawBackground();
-        if (e.SubItem == null)
-            return;
-        Color fore = e.ColumnIndex == 2 && e.Item?.Tag is FileItem item
-            ? StatusColor(item.State)
-            : (e.ItemState & ListViewItemStates.Selected) != 0
-                ? SystemColors.HighlightText
-                : lvFiles.ForeColor;
-        TextRenderer.DrawText(e.Graphics, e.SubItem.Text, lvFiles.Font, e.Bounds, fore,
-            TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
-    }
 
     private void ClearQueue()
     {
